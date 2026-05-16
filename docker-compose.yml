@@ -5,10 +5,11 @@ services:
     image: mysql:8.4
     restart: unless-stopped
     environment:
-      MYSQL_ROOT_PASSWORD: secret
-      MYSQL_DATABASE: db_sanctions
-      MYSQL_USER: user
-      MYSQL_PASSWORD: secret
+      # Docker va injecter les valeurs définies dans le fichier .env
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${DB_NAME}
+      MYSQL_USER: ${DB_USER}
+      MYSQL_PASSWORD: ${DB_PASS}
     ports:
       - "3330:3306"
     volumes:
@@ -23,11 +24,9 @@ services:
     depends_on:
       - db
     environment:
-      PMA_HOST: db   # nom du service MySQL
-      
+      PMA_HOST: ${DB_HOST} # Utilise l'alias DNS défini dans l'environnement
       UPLOAD_LIMIT: 256M
     ports:
-    
       - "8010:80"
     networks:
       - sio

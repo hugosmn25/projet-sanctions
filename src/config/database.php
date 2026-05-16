@@ -4,67 +4,50 @@ namespace App\Config;
 use PDO;
 use PDOException;
 
-/**
- * Database connection helper with sensible dev fallbacks.
- *
- * It prefers environment variables (DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASS).
- * If they are not set it will try common local/dev combos to make switching WAMP <-> Docker easier.
- */
 class Database
 {
+    private static ?PDO $connection = null;
+
     public static function getConnection(): PDO
     {
-        // Read env first
-        $envHost = getenv('DB_HOST') !== false ? getenv('DB_HOST') : null;
-        $envPort = getenv('DB_PORT') !== false ? getenv('DB_PORT') : null;
-        $envName = getenv('DB_NAME') !== false ? getenv('DB_NAME') : null;
-        $envUser = getenv('DB_USER') !== false ? getenv('DB_USER') : null;
-        $envPass = getenv('DB_PASS') !== false ? getenv('DB_PASS') : null;
-
-        // Defaults (safe for local WAMP dev)
-        $defaults = [
-            'host' => $envHost ?? '127.0.0.1',
-            'port' => $envPort ?? '3306',
-            'name' => $envName ?? 'db_sanctions',
-            'user' => $envUser ?? 'user',
-            'pass' => $envPass ?? 'secret',
-            'charset' => 'utf8mb4',
-        ];
-
-        $db = [];
-
-        // If env provided, try that first
-        if ($envHost !== null || $envPort !== null) {
-            $db[] = [$defaults['host'], $defaults['port']];
-        }
-        
-        $db[] = ['127.0.0.1', '3330'];
-
-        $lastException = null;
-
-        foreach ($db as [$host, $port]) {
-            $dsn = "mysql:host={$host};port={$port};dbname={$defaults['name']};charset={$defaults['charset']}";
-            try {
-                $pdo = new PDO($dsn, $defaults['user'], $defaults['pass'], [
-                    PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-                    PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-                    // optional: persistent => false
-                ]);
-                return $pdo;
-            } catch (PDOException $e) {
-                // keep last exception for final message
-                $lastException = $e;
-                // try next candidate
-            }
+        if (self::$connection !== null) {
+            return self::$connection;
         }
 
-        // If we arrive here, none of the candidates worked
-        $msg = "Erreur de connexion à la base de données. Tentatives :\n";
-        foreach ($db as [$h, $p]) {
-            $msg .= "- $h:$p (db={$defaults['name']}, user={$defaults['user']})\n";
-        }
-        $msg .= "Dernier message MySQL: " . ($lastException ? $lastException->getMessage() : 'aucune réponse');
+        // 1. Détection de l'environnement (Docker ou Localhost)
+        // Si getenv('DB_HOST') est fourni par Docker, on l'utilise.
+        // Sinon, c'est qu'on est en localhost sous Windows, donc on force '127.0.0.1'
+        $host = getenv('DB_HOST') ?: '127.0.0.1';
 
-        throw new \RuntimeException($msg);
+        // 2. Gestion dynamique du Port
+        // Si on est dans Docker, le serveur PHP parle à MySQL sur le port interne '3306'
+        // Si on est en localhost sous Windows, on doit utiliser le port exposé '3330'
+        if (getenv('DB_HOST') !== false) {
+            $port = getenv('DB_PORT') ?: '3306';
+        } else {
+            $port = '3330'; // Ton port externe configuré dans le docker-compose.yml
+        }
+
+        // 3. Récupération des autres variables (communes)
+        $name = getenv('DB_NAME') ?: 'db_sanctions';
+        $user = getenv('DB_USER') ?: 'user';
+        $pass = getenv('DB_PASS') ?: 'secret';
+
+        $dsn = "mysql:host={$host};port={$port};dbname={$name};charset=utf8mb4";
+
+        try {
+            self::$connection = new PDO($dsn, $user, $pass, [
+                PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+                PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+            ]);
+            
+            return self::$connection;
+        } catch (PDOException $e) {
+            throw new \RuntimeException(
+                "Erreur de connexion à la base de données (Mode: " . ($host === '127.0.0.1' ? 'Localhost' : 'Docker') . ").\n" .
+                "Vérifiez que le conteneur de la BDD est bien démarré.\n" .
+                "Détail : " . $e->getMessage()
+            );
+        }
     }
 }
