@@ -3,11 +3,12 @@ namespace App\Routing;
 
 /**
  * Router basique conforme aux consignes.
- * Gère les routes 'action' => fonction et vérifie méthodes HTTP.
+ * Analogie : C'est le "chef de salle" ou "l'aiguilleur".
+ * Il lit l'action dans l'URL et décide à quel Contrôleur confier le travail.
  */
 class Router
 {
-    private array $routes = [];
+    private array $routes = []; // Le catalogue de toutes les pages existantes
     private $request;
     private $response;
 
@@ -18,10 +19,10 @@ class Router
     }
 
     /**
-     * Ajoute une route
-     * @param string $action
-     * @param callable|string|array $fonction
-     * @param array $methodes
+     * Ajoute une route au catalogue (Généralement appelé depuis public/index.php)
+     * @param string $action Le nom de l'action dans l'URL (ex: 'liste_sanctions')
+     * @param callable|string|array $fonction Le Contrôleur et la méthode à appeler
+     * @param array $methodes S'agit-il d'un simple affichage (GET) ou d'un formulaire (POST) ?
      * @return $this
      */
     public function addRoute($action, $fonction, $methodes = ['GET']): self
@@ -44,11 +45,16 @@ class Router
         return isset($this->routes[$action]);
     }
 
+    /**
+     * Le cœur du Routeur : la méthode qui analyse l'URL et lance le Contrôleur
+     */
     public function handleRequest(): void
     {
+        // 1. On regarde ce que le client demande (GET ou POST) et l'action (ex: ?action=login)
         $method = strtoupper(method_exists($this->request, 'getMethod') ? $this->request->getMethod() : ($_SERVER['REQUEST_METHOD'] ?? 'GET'));
         $action = method_exists($this->request, 'getAction') ? ($this->request->getAction() ?? 'index') : ($_GET['action'] ?? 'index');
 
+        // 2. Si l'action n'existe pas dans le catalogue, on déclenche une erreur 404 (Page introuvable)
         if (!$this->hasRoute($action)) {
             $this->handleNotFound();
             return;
@@ -56,6 +62,7 @@ class Router
 
         $route = $this->routes[$action];
 
+        // 3. Si on essaie d'envoyer un POST sur une route qui n'accepte que du GET (ou inversement)
         if (!in_array($method, $route['methodes'])) {
             $this->handleMethodNotAllowed($route['methodes']);
             return;
@@ -63,14 +70,14 @@ class Router
 
         $fonction = $route['fonction'];
 
-        // Determine callable
+        // Determine callable (préparation de la fonction du contrôleur à lancer)
         $callable = null;
         if (is_callable($fonction)) {
             $callable = $fonction;
         } elseif (is_string($fonction) && function_exists($fonction)) {
             $callable = $fonction;
         } elseif (is_array($fonction) && count($fonction) === 2) {
-            // ['ClassOrInstance', 'method']
+            // ['ClassOrInstance', 'method'] -> C'est ce cas de figure qui est utilisé dans ton index.php
             $callable = $fonction;
         }
 
@@ -79,7 +86,7 @@ class Router
             return;
         }
 
-        // Call with 0/1/2 arguments depending on expected parameters
+        // 4. L'exécution réelle : on lance la méthode du Contrôleur en lui passant la Request et la Response
         try {
             if (is_array($callable)) {
                 $ref = new \ReflectionMethod($callable[0], $callable[1]);
@@ -88,11 +95,14 @@ class Router
             }
             $numParams = $ref->getNumberOfParameters();
             $args = [];
+            // Si le Contrôleur a besoin de la Request ou de la Response, on les lui donne
             if ($numParams >= 1) $args[] = $this->request;
             if ($numParams >= 2) $args[] = $this->response;
 
-            call_user_func_array($callable, $args);
+            call_user_func_array($callable, $args); // <-- C'est ici que le code du Contrôleur est exécuté !
+            
         } catch (\Throwable $e) {
+            // Si le Contrôleur plante (erreur SQL, bug PHP), on affiche une erreur 500
             if (method_exists($this->response, 'setStatusCode')) {
                 $this->response->setStatusCode(500);
             } else {
@@ -106,6 +116,8 @@ class Router
             $this->response->send();
         }
     }
+
+    // --- Méthodes de gestion d'erreurs ---
 
     private function handleNotFound(): void
     {

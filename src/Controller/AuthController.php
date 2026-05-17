@@ -161,7 +161,7 @@ class AuthController
             $nom = trim($_POST['nom'] ?? '');
             $email = trim($_POST['email'] ?? '');
             $password = $_POST['password'] ?? '';
-            $passwordConfirm = $_POST['password_confirm'] ?? '';
+            $passwordConfirm = $_POST['confirm_password'] ?? '';
 
             $values['prenom'] = $prenom;
             $values['nom'] = $nom;
